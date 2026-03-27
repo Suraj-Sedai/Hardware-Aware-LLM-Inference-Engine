@@ -1,0 +1,41 @@
+# Core Dependencies
+torch>=2.0.0
+transformers>=4.30.0
+tokenizers>=0.13.0
+
+# Triton for custom kernels
+triton>=2.0.0
+
+# Flash Attention
+flash-attn>=2.0.0
+
+# Quantization
+bitsandbytes>=0.40.0
+
+# Profiling and Monitoring
+nvidia-ml-py3
+py3nvml
+psutil
+
+# Utilities
+numpy>=1.24.0
+tqdm
+pyyaml
+dacite
+
+# Development and Testing
+pytest
+pytest-cov
+black
+flake8
+mypy
+
+# Visualization (for notebooks)
+matplotlib
+seaborn
+jupyter
+ipywidgets
+
+# Optional: For specific model support
+sentencepiece
+protobuf
