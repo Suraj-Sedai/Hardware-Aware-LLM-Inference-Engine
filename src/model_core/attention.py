@@ -28,11 +28,10 @@ class SelfAttention(nn.Module):
         k = k.view(B, T, self.n_heads, self.head_dim).transpose(1, 2)
         v = v.view(B, T, self.n_heads, self.head_dim).transpose(1, 2)
         
-        # use KV cache if available
-        if kv_cache is not None and kv_cache.curr_len > 0:
-            K_cached, V_cached = kv_cache.get(layer_id)
-            K_all = torch.cat([K_cached, k], dim=2)
-            V_all = torch.cat([V_cached, v], dim=2)
+        # Get full K/V for attention (uses cache if available)
+        if kv_cache is not None:
+            # Use optimized method that writes to cache and returns view
+            K_all, V_all = kv_cache.get_for_attention(layer_id, k, v)
         else:
             K_all, V_all = k, v
         

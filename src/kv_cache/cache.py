@@ -3,7 +3,10 @@ import torch
 
 
 class KVCacheManager:
-    """Manages key-value cache for transformer layers."""
+    """Manages key-value cache for transformer layers.
+    
+    Uses pre-allocated buffers and returns views to avoid memory copies.
+    """
     
     def __init__(self, n_layers, n_heads, max_seq_len, dim_head, device, batch_size):
         self.n_layers = n_layers
@@ -21,17 +24,37 @@ class KVCacheManager:
         self.curr_len = 0
     
     def update(self, layer_id, K_new, V_new):
-        """Update cache with new keys and values."""
+        """Update cache with new keys and values (in-place write)."""
         B, n_heads, T_new, dim_head = K_new.shape
         
         if self.curr_len + T_new > self.max_seq_len:
             raise ValueError("KV cache out of capacity!")
         
-        self.K[layer_id][:, :, self.curr_len:self.curr_len + T_new, :] = K_new
-        self.V[layer_id][:, :, self.curr_len:self.curr_len + T_new, :] = V_new
+        # In-place copy to pre-allocated buffer
+        self.K[layer_id][:, :, self.curr_len:self.curr_len + T_new, :].copy_(K_new)
+        self.V[layer_id][:, :, self.curr_len:self.curr_len + T_new, :].copy_(V_new)
+    
+    def get_for_attention(self, layer_id, K_new, V_new):
+        """Get full K/V including new values for attention computation.
+        
+        Writes K_new, V_new to cache and returns a view of the full sequence.
+        This avoids torch.cat by using the pre-allocated buffer directly.
+        """
+        B, n_heads, T_new, dim_head = K_new.shape
+        
+        if self.curr_len + T_new > self.max_seq_len:
+            raise ValueError("KV cache out of capacity!")
+        
+        # Write new K/V to buffer
+        end_pos = self.curr_len + T_new
+        self.K[layer_id][:, :, self.curr_len:end_pos, :].copy_(K_new)
+        self.V[layer_id][:, :, self.curr_len:end_pos, :].copy_(V_new)
+        
+        # Return view of full sequence (no copy!)
+        return self.K[layer_id][:, :, :end_pos, :], self.V[layer_id][:, :, :end_pos, :]
     
     def get(self, layer_id):
-        """Get cached keys and values for a layer."""
+        """Get cached keys and values for a layer (view, no copy)."""
         return (self.K[layer_id][:, :, :self.curr_len, :], 
                 self.V[layer_id][:, :, :self.curr_len, :])
     

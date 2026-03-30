@@ -28,15 +28,12 @@ class GPT(nn.Module):
         
         x = self.token_emb(input_ids) + self.pos_emb(positions)
         
-        new_kvs = []
         for layer_id, block in enumerate(self.blocks):
-            x, K_new, V_new = block(x, kv_cache, layer_id)
-            new_kvs.append((K_new, V_new))
+            # Cache is updated inside attention via get_for_attention()
+            x, _, _ = block(x, kv_cache, layer_id)
         
-        # update cache
+        # Update cache length after all layers processed
         if kv_cache is not None:
-            for layer_id, (K_new, V_new) in enumerate(new_kvs):
-                kv_cache.update(layer_id, K_new, V_new)
             kv_cache.curr_len += T
         
         x = self.ln_f(x)

@@ -8,9 +8,11 @@ except ImportError:
     psutil = None
 
 try:
-    import GPUtil
-except ImportError:
-    GPUtil = None
+    from pynvml import nvmlInit, nvmlDeviceGetHandleByIndex, nvmlDeviceGetUtilizationRates
+    nvmlInit()
+    HAS_NVML = True
+except Exception:
+    HAS_NVML = False
 
 
 def get_device():
@@ -26,14 +28,33 @@ def get_device():
 
 
 def get_gpu_utilization():
-    """Get GPU utilization percentage."""
-    if GPUtil is None:
-        return 0.0
-    try:
-        gpus = GPUtil.getGPUs()
-        return gpus[0].load * 100 if gpus else 0.0
-    except Exception:
-        return 0.0
+    """Get GPU utilization percentage using pynvml."""
+    if HAS_NVML:
+        try:
+            handle = nvmlDeviceGetHandleByIndex(0)
+            util = nvmlDeviceGetUtilizationRates(handle)
+            return util.gpu
+        except Exception:
+            pass
+    # Fallback: return memory utilization as proxy
+    if torch.cuda.is_available():
+        try:
+            allocated = torch.cuda.memory_allocated(0)
+            total = torch.cuda.get_device_properties(0).total_memory
+            return (allocated / total) * 100
+        except Exception:
+            pass
+    return 0.0
+
+
+def get_gpu_memory_mb():
+    """Get GPU memory usage in MB."""
+    if torch.cuda.is_available():
+        try:
+            return torch.cuda.memory_allocated(0) / (1024 * 1024)
+        except Exception:
+            pass
+    return 0.0
 
 
 def get_cpu_utilization():

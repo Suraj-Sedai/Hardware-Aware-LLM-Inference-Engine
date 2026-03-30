@@ -1,6 +1,9 @@
 """
 Experiment 3: KV Cache Efficiency
 Tests KV cache memory usage and performance impact.
+
+The KV cache speeds up autoregressive generation by storing computed
+key/value pairs, avoiding redundant computation on previous tokens.
 """
 import time
 import torch
@@ -24,17 +27,19 @@ def get_cache_memory_mb(kv_cache):
 def run_kv_cache_experiment(
     seq_lengths=None,
     batch_size=1,
-    max_new_tokens=10,
-    vocab_size=100,
-    dim=64,
-    n_heads=4,
-    n_layers=4
+    max_new_tokens=100,
+    vocab_size=1000,
+    dim=512,
+    n_heads=8,
+    n_layers=8
 ):
     """
     Benchmark KV cache efficiency across different configurations.
+    
+    Uses larger model (dim=512, 8 layers) to show cache benefits clearly.
     """
     if seq_lengths is None:
-        seq_lengths = [32, 64, 128, 256]
+        seq_lengths = [128, 256, 512, 1024]
     
     device = get_device()
     print(f"Device: {device}")
@@ -45,41 +50,68 @@ def run_kv_cache_experiment(
     results = []
     
     for seq_len in seq_lengths:
-        # Create model
+        # Create model (larger for meaningful cache benefits)
         model = GPT(vocab_size, dim, n_heads, n_layers, seq_len).to(device)
         model.eval()
         
-        # Test WITH KV cache
+        prompt_len = 16
+        effective_new_tokens = min(max_new_tokens, seq_len - prompt_len - 10)
+        if effective_new_tokens < 10:
+            continue
+            
+        input_ids = torch.randint(0, vocab_size, (batch_size, prompt_len), device=device)
+        
+        # ===== WARMUP =====
+        warmup_cache = KVCacheManager(n_layers, n_heads, seq_len, dim // n_heads, device, batch_size)
+        with torch.no_grad():
+            for _ in range(3):
+                _ = model(input_ids, warmup_cache)
+                warmup_cache.curr_len = 0  # Reset for next warmup
+        if torch.cuda.is_available():
+            torch.cuda.synchronize()
+        
+        # ===== Test WITH KV cache =====
         kv_cache = KVCacheManager(n_layers, n_heads, seq_len, dim // n_heads, device, batch_size)
         cache_memory = get_cache_memory_mb(kv_cache)
         
-        prompt_len = min(4, seq_len - max_new_tokens)
-        input_ids = torch.randint(0, vocab_size, (batch_size, prompt_len), device=device)
-        
         with torch.no_grad():
-            # With cache
-            _ = model(input_ids, kv_cache)
-            generated = input_ids.clone()
+            # Prefill (not timed)
+            logits = model(input_ids, kv_cache)
+            next_token = sample_top_k(logits[:, -1, :])
             
-            start_cached = time.time()
-            for _ in range(max_new_tokens):
-                x = generated[:, -1:]
-                logits = model(x, kv_cache)
+            if torch.cuda.is_available():
+                torch.cuda.synchronize()
+            
+            # Decode: generate one token at a time using cache
+            start_cached = time.perf_counter()
+            for _ in range(effective_new_tokens):
+                logits = model(next_token, kv_cache)
                 next_token = sample_top_k(logits[:, -1, :])
-                generated = torch.cat([generated, next_token], dim=1)
-            time_cached = time.time() - start_cached
+            
+            if torch.cuda.is_available():
+                torch.cuda.synchronize()
+            time_cached = time.perf_counter() - start_cached
         
-        # Test WITHOUT KV cache (recompute all)
+        # ===== Test WITHOUT KV cache =====
         with torch.no_grad():
             generated = input_ids.clone()
             
-            start_no_cache = time.time()
-            for _ in range(max_new_tokens):
-                # Recompute full sequence each time (no cache)
+            # Warmup without cache
+            for _ in range(2):
+                _ = model(generated, kv_cache=None)
+            if torch.cuda.is_available():
+                torch.cuda.synchronize()
+            
+            generated = input_ids.clone()
+            start_no_cache = time.perf_counter()
+            for _ in range(effective_new_tokens):
                 logits = model(generated, kv_cache=None)
                 next_token = sample_top_k(logits[:, -1, :])
                 generated = torch.cat([generated, next_token], dim=1)
-            time_no_cache = time.time() - start_no_cache
+            
+            if torch.cuda.is_available():
+                torch.cuda.synchronize()
+            time_no_cache = time.perf_counter() - start_no_cache
         
         speedup = time_no_cache / time_cached if time_cached > 0 else 0
         
@@ -89,8 +121,8 @@ def run_kv_cache_experiment(
             "time_with_cache": time_cached,
             "time_without_cache": time_no_cache,
             "speedup": speedup,
-            "throughput_cached": max_new_tokens / time_cached,
-            "throughput_no_cache": max_new_tokens / time_no_cache
+            "throughput_cached": effective_new_tokens / time_cached,
+            "throughput_no_cache": effective_new_tokens / time_no_cache
         }
         results.append(result)
         
