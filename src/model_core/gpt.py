@@ -18,7 +18,7 @@ class GPT(nn.Module):
         self.head = nn.Linear(dim, vocab_size)
         self.max_seq_len = max_seq_len
     
-    def forward(self, input_ids, kv_cache=None):
+    def forward(self, input_ids, kv_cache=None, latency_tracker=None):
         B, T = input_ids.shape
         
         # get position offset from cache
@@ -29,8 +29,14 @@ class GPT(nn.Module):
         x = self.token_emb(input_ids) + self.pos_emb(positions)
         
         for layer_id, block in enumerate(self.blocks):
+            if latency_tracker:
+                latency_tracker.start_layer(layer_id)
+            
             # Cache is updated inside attention via get_for_attention()
             x, _, _ = block(x, kv_cache, layer_id)
+            
+            if latency_tracker:
+                latency_tracker.end_layer(layer_id)
         
         # Update cache length after all layers processed
         if kv_cache is not None:
