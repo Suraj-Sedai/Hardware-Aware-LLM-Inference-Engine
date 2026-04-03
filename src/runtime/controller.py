@@ -2,7 +2,7 @@
 import torch
 import time
 from ..profiling.latency_tracker import LatencyTracker
-from ..profiling.memory_tracker import get_gpu_memory_mb, reset_gpu_memory_stats
+from ..profiling.memory_tracker import get_gpu_memory_mb, get_gpu_max_memory_mb, reset_gpu_memory_stats
 
 
 class InferenceController:
@@ -70,14 +70,14 @@ class InferenceController:
         self.latency_tracker.end_phase("decode")
         self.latency_tracker.synchronize()
         
-        end_mem = get_gpu_memory_mb()
+        # Get true peak memory usage
+        peak_mem = get_gpu_max_memory_mb()
         
         return {
             "tokens": output_tokens[:, :curr_len],
             "latencies": token_latencies,
             "phase_times": self.latency_tracker.get_times(),
-            "memory_mb": end_mem - start_mem,
-            "peak_memory_mb": end_mem, # Simplified
+            "peak_memory_mb": peak_mem,
         }
 
     def warmup(self, input_ids, max_new_tokens, trials=3):

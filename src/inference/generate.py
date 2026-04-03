@@ -1,35 +1,45 @@
-"""Text generation with KV cache."""
-import torch
-from ..sampling.strategies import sample_top_k
+"""Text generation with KV cache using InferenceController.
+
+This module now delegates to InferenceController which uses preallocated
+buffer logic for efficient generation. The old torch.cat approach has been
+replaced with the controller's optimized implementation.
+"""
+from ..runtime.controller import InferenceController
 
 
-def generate(model, input_ids, kv_cache, max_new_tokens, temperature=1.0, top_k=50):
-    """Generate tokens autoregressively."""
-    generated = input_ids.clone()
+def generate(model, input_ids, kv_cache, max_new_tokens, temperature=1.0, top_k=50, device="cuda"):
+    """Generate tokens autoregressively using InferenceController.
     
-    # prefill: process the prompt
-    _ = model(input_ids, kv_cache)
-    
-    # decode: generate new tokens one by one
-    for _ in range(max_new_tokens):
-        x = generated[:, -1:]
-        logits = model(x, kv_cache)
-        next_token = sample_top_k(logits[:, -1, :], k=top_k, temperature=temperature)
-        generated = torch.cat([generated, next_token], dim=1)
-    
-    return generated
+    Args:
+        model: The language model
+        input_ids: Input token IDs (B, T)
+        kv_cache: KV cache manager
+        max_new_tokens: Number of tokens to generate
+        temperature: Sampling temperature (currently unused, greedy only)
+        top_k: Top-k sampling parameter (currently unused, greedy only)
+        device: Device to run on
+        
+    Returns:
+        Generated tokens (B, T + max_new_tokens)
+    """
+    controller = InferenceController(model, kv_cache, device)
+    result = controller.generate(input_ids, max_new_tokens, temperature=temperature, top_k=top_k)
+    return result["tokens"]
 
 
-def generate_greedy(model, input_ids, kv_cache, max_new_tokens):
-    """Simple greedy generation (argmax)."""
-    generated = input_ids.clone()
+def generate_greedy(model, input_ids, kv_cache, max_new_tokens, device="cuda"):
+    """Simple greedy generation using InferenceController.
     
-    _ = model(input_ids, kv_cache)
-    
-    for _ in range(max_new_tokens):
-        x = generated[:, -1:]
-        logits = model(x, kv_cache)
-        next_token = torch.argmax(logits[:, -1, :], dim=-1, keepdim=True)
-        generated = torch.cat([generated, next_token], dim=1)
-    
-    return generated
+    Args:
+        model: The language model
+        input_ids: Input token IDs (B, T)
+        kv_cache: KV cache manager
+        max_new_tokens: Number of tokens to generate
+        device: Device to run on
+        
+    Returns:
+        Generated tokens (B, T + max_new_tokens)
+    """
+    controller = InferenceController(model, kv_cache, device)
+    result = controller.generate(input_ids, max_new_tokens, temperature=1.0, top_k=1)
+    return result["tokens"]

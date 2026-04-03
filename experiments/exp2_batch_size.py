@@ -2,13 +2,14 @@
 Experiment 2: Batch Size Impact
 Tests how different batch sizes affect inference performance.
 """
-import time
+import json
 import torch
+from pathlib import Path
 
 from src.model_core import GPT
 from src.kv_cache import KVCacheManager
-from src.sampling import sample_top_k
-from src.profiling import get_device, get_gpu_utilization, get_cpu_utilization
+from src.runtime.controller import InferenceController
+from src.profiling import get_device, calculate_metrics
 
 
 def run_batch_size_experiment(
@@ -18,10 +19,12 @@ def run_batch_size_experiment(
     vocab_size=100,
     dim=32,
     n_heads=4,
-    n_layers=2
+    n_layers=2,
+    save_results=True
 ):
     """
     Benchmark different batch sizes with fixed sequence length.
+    Uses InferenceController and structured metrics.
     """
     if batch_sizes is None:
         batch_sizes = [1, 2, 4, 8, 16]
@@ -43,47 +46,53 @@ def run_batch_size_experiment(
         prompt_len = 4
         input_ids = torch.randint(0, vocab_size, (batch_size, prompt_len), device=device)
         
-        # Warm-up run
+        # Create controller
         kv_cache = KVCacheManager(n_layers, n_heads, seq_len, dim // n_heads, device, batch_size)
-        with torch.no_grad():
-            _ = model(input_ids, kv_cache)
+        controller = InferenceController(model, kv_cache, device)
+        
+        # Warmup
+        controller.warmup(input_ids, max_new_tokens, trials=2)
         
         # Benchmark run
-        kv_cache = KVCacheManager(n_layers, n_heads, seq_len, dim // n_heads, device, batch_size)
-        
+        kv_cache.reset()
         with torch.no_grad():
-            # Prefill
-            _ = model(input_ids, kv_cache)
-            
-            # Decode
-            generated = input_ids.clone()
-            start = time.time()
-            
-            for _ in range(max_new_tokens):
-                x = generated[:, -1:]
-                logits = model(x, kv_cache)
-                next_token = sample_top_k(logits[:, -1, :])
-                generated = torch.cat([generated, next_token], dim=1)
-            
-            elapsed = time.time() - start
+            gen_result = controller.generate(input_ids, max_new_tokens)
         
+        # Calculate metrics
+        latencies = gen_result["latencies"]
         total_tokens = batch_size * max_new_tokens
-        throughput = total_tokens / elapsed
-        latency = elapsed / max_new_tokens
+        total_time = sum(latencies)
+        metrics = calculate_metrics(latencies, total_tokens, total_time)
         
+        # Construct structured result
         result = {
+            "experiment": "batch_size",
             "batch_size": batch_size,
-            "throughput": throughput,
-            "latency": latency,
-            "total_time": elapsed,
-            "tokens_generated": total_tokens,
-            "gpu_util": get_gpu_utilization(),
-            "cpu_util": get_cpu_utilization()
+            "seq_len": seq_len,
+            "prompt_len": prompt_len,
+            "decode_len": max_new_tokens,
+            "ttft_ms": metrics["ttft_ms"],
+            "tpot_avg_ms": metrics["tpot_avg_ms"],
+            "tpot_p95_ms": metrics["tpot_p95_ms"],
+            "throughput_tokens_per_sec": metrics["throughput_tokens_per_sec"],
+            "peak_memory_mb": gen_result["peak_memory_mb"],
+            "phase_times": gen_result["phase_times"],
         }
         results.append(result)
         
-        print(f"batch={batch_size:3d} | {throughput:8.2f} tok/s | latency={latency:.4f}s | "
-              f"GPU={result['gpu_util']:.1f}% | CPU={result['cpu_util']:.1f}%")
+        print(f"batch={batch_size:3d} | TTFT={result['ttft_ms']:7.2f}ms | "
+              f"TPOT={result['tpot_avg_ms']:6.2f}ms | "
+              f"throughput={result['throughput_tokens_per_sec']:8.2f} tok/s | "
+              f"peak_mem={result['peak_memory_mb']:.2f}MB")
+    
+    # Save results
+    if save_results:
+        results_dir = Path("results")
+        results_dir.mkdir(exist_ok=True)
+        output_file = results_dir / "exp2_batch_size.json"
+        with open(output_file, "w") as f:
+            json.dump(results, f, indent=2)
+        print(f"\nResults saved to {output_file}")
     
     return results
 
