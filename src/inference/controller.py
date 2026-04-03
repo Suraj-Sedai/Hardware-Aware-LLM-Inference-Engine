@@ -3,6 +3,7 @@ import torch
 import time
 from ..profiling.latency_tracker import LatencyTracker
 from ..profiling.memory_tracker import get_gpu_memory_mb, get_gpu_max_memory_mb, reset_gpu_memory_stats
+from ..sampling.strategies import sample_top_k
 
 
 class InferenceController:
@@ -15,7 +16,7 @@ class InferenceController:
         self.ablation_flags = ablation_flags or {}
         self.latency_tracker = LatencyTracker(device)
     
-    def generate(self, input_ids, max_new_tokens, temperature=1.0, top_k=50):
+    def generate(self, input_ids, max_new_tokens, temperature=1.0, top_k=50, sample_fn=None):
         """Generate tokens with preallocated buffer and profiling."""
         B, T_prompt = input_ids.shape
         max_total_len = T_prompt + max_new_tokens
@@ -26,6 +27,14 @@ class InferenceController:
         output_tokens[:, :T_prompt] = input_ids
         
         token_latencies = []
+        
+        # Create default sample function if not provided
+        if sample_fn is None:
+            if top_k == 1:
+                # Greedy
+                sample_fn = lambda logits: torch.argmax(logits, dim=-1, keepdim=True)
+            else:
+                sample_fn = lambda logits: sample_top_k(logits, k=top_k, temperature=temperature)
         
         # Reset memory stats
         reset_gpu_memory_stats()
@@ -55,8 +64,8 @@ class InferenceController:
             # Forward pass
             logits = self.model(x, self.kv_cache, latency_tracker=self.latency_tracker)
             
-            # Sample next token (greedy for simplicity here, can be extended)
-            next_token = torch.argmax(logits[:, -1, :], dim=-1, keepdim=True)
+            # Sample next token
+            next_token = sample_fn(logits[:, -1, :])
             
             # Store in preallocated buffer
             output_tokens[:, curr_len:curr_len+1] = next_token

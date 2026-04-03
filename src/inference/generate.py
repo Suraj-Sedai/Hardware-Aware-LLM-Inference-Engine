@@ -4,7 +4,7 @@ This module now delegates to InferenceController which uses preallocated
 buffer logic for efficient generation. The old torch.cat approach has been
 replaced with the controller's optimized implementation.
 """
-from ..runtime.controller import InferenceController
+from .controller import InferenceController
 
 
 def generate(model, input_ids, kv_cache, max_new_tokens, temperature=1.0, top_k=50, device="cuda"):

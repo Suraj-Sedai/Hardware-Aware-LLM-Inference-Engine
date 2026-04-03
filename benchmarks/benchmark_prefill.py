@@ -3,7 +3,7 @@ import torch
 import time
 from ..model_core.gpt import GPT
 from ..kv_cache.contiguous_cache import KVCacheManager
-from ..runtime.controller import InferenceController
+from ..inference.controller import InferenceController
 
 
 def run_prefill_benchmark(model_config, batch_size, prompt_len, device="cuda"):

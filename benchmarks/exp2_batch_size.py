@@ -8,8 +8,8 @@ from pathlib import Path
 
 from src.model_core import GPT
 from src.kv_cache import KVCacheManager
-from src.runtime.controller import InferenceController
-from src.profiling import get_device, calculate_metrics
+from src.inference.controller import InferenceController
+from src.profiling import get_device, calculate_metrics, format_benchmark_result
 
 
 def run_batch_size_experiment(
@@ -59,25 +59,25 @@ def run_batch_size_experiment(
             gen_result = controller.generate(input_ids, max_new_tokens)
         
         # Calculate metrics
-        latencies = gen_result["latencies"]
-        total_tokens = batch_size * max_new_tokens
-        total_time = sum(latencies)
-        metrics = calculate_metrics(latencies, total_tokens, total_time)
+        metrics = calculate_metrics(
+            gen_result["latencies"], 
+            batch_size * max_new_tokens, 
+            sum(gen_result["latencies"])
+        )
         
-        # Construct structured result
-        result = {
-            "experiment": "batch_size",
-            "batch_size": batch_size,
-            "seq_len": seq_len,
-            "prompt_len": prompt_len,
-            "decode_len": max_new_tokens,
-            "ttft_ms": metrics["ttft_ms"],
-            "tpot_avg_ms": metrics["tpot_avg_ms"],
-            "tpot_p95_ms": metrics["tpot_p95_ms"],
-            "throughput_tokens_per_sec": metrics["throughput_tokens_per_sec"],
-            "peak_memory_mb": gen_result["peak_memory_mb"],
-            "phase_times": gen_result["phase_times"],
-        }
+        # Construct standardized result
+        result = format_benchmark_result(
+            experiment_name="batch_size",
+            model_name=f"gpt_{dim}d_{n_layers}l",
+            gen_result=gen_result,
+            metrics=metrics,
+            config_overrides={
+                "batch_size": batch_size,
+                "seq_len": seq_len,
+                "prompt_len": prompt_len,
+                "decode_len": max_new_tokens,
+            }
+        )
         results.append(result)
         
         print(f"batch={batch_size:3d} | TTFT={result['ttft_ms']:7.2f}ms | "

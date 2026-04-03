@@ -2,6 +2,7 @@
 import time
 import torch
 
+
 try:
     import psutil
 except ImportError:
@@ -67,22 +68,26 @@ def get_cpu_utilization():
         return 0.0
 
 
-def benchmark_generation(model, input_ids, kv_cache, max_new_tokens, sample_fn):
-    """Benchmark token generation speed."""
-    generated = input_ids.clone()
+def benchmark_generation(model, input_ids, kv_cache, max_new_tokens, sample_fn=None):
+    """Benchmark token generation speed using InferenceController."""
+    from ..inference.controller import InferenceController
+    device = input_ids.device
+    controller = InferenceController(model, kv_cache, device)
     
-    start = time.time()
-    for _ in range(max_new_tokens):
-        x = generated[:, -1:]
-        logits = model(x, kv_cache)
-        next_token = sample_fn(logits[:, -1, :])
-        generated = torch.cat([generated, next_token], dim=1)
-    elapsed = time.time() - start
+    # Warmup
+    controller.warmup(input_ids, max_new_tokens, trials=1)
+    
+    # Benchmark
+    kv_cache.reset()
+    result = controller.generate(input_ids, max_new_tokens, sample_fn=sample_fn)
+    
+    elapsed = sum(result["latencies"])
     
     return {
         "total_time": elapsed,
-        "tokens_per_sec": max_new_tokens / elapsed,
-        "latency_per_token": elapsed / max_new_tokens,
+        "tokens_per_sec": (input_ids.shape[0] * max_new_tokens) / elapsed if elapsed > 0 else 0,
+        "latency_per_token": elapsed / max_new_tokens if max_new_tokens > 0 else 0,
         "gpu_util": get_gpu_utilization(),
         "cpu_util": get_cpu_utilization(),
+        "peak_memory_mb": result["peak_memory_mb"],
     }

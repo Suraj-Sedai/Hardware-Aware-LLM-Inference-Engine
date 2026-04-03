@@ -3,8 +3,8 @@ import torch
 import numpy as np
 from ..model_core.gpt import GPT
 from ..kv_cache.contiguous_cache import KVCacheManager
-from ..runtime.controller import InferenceController
-from ..runtime.workload_simulator import WorkloadSimulator, run_workload
+from ..inference.controller import InferenceController
+from ..inference.workload_simulator import WorkloadSimulator, run_workload
 from ..profiling.metrics import calculate_metrics
 
 

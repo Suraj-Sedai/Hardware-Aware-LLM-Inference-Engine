@@ -1,6 +1,6 @@
 """
-Run all experiments and generate results.
-Usage: python -m experiments.run_all
+Run all benchmarks and generate results.
+Usage: python -m benchmarks.run_all
 """
 import os
 import sys
@@ -10,11 +10,11 @@ from datetime import datetime
 # Add parent dir to path
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
-from experiments.exp1_sequence_length import run_sequence_length_experiment
-from experiments.exp2_batch_size import run_batch_size_experiment
-from experiments.exp3_kv_cache import run_kv_cache_experiment
-from experiments.exp4_quantization import run_quantization_experiment
-from experiments.visualize import plot_all_results
+from benchmarks.exp1_sequence_length import run_sequence_length_experiment
+from benchmarks.exp2_batch_size import run_batch_size_experiment
+from benchmarks.exp3_kv_cache import run_kv_cache_experiment
+from benchmarks.exp4_quantization import run_quantization_experiment
+from benchmarks.visualize import plot_all_results
 
 
 def run_all_experiments(output_dir="results"):

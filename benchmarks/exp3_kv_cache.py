@@ -12,8 +12,8 @@ from pathlib import Path
 
 from src.model_core import GPT
 from src.kv_cache import KVCacheManager
-from src.runtime.controller import InferenceController
-from src.profiling import get_device, calculate_metrics
+from src.inference.controller import InferenceController
+from src.profiling import get_device, calculate_metrics, format_benchmark_result
 from src.sampling import sample_top_k
 
 
@@ -40,8 +40,6 @@ def run_kv_cache_experiment(
     """
     Benchmark KV cache efficiency across different configurations.
     Uses InferenceController for cached version and manual generation for comparison.
-    
-    Uses larger model (dim=512, 8 layers) to show cache benefits clearly.
     """
     if seq_lengths is None:
         seq_lengths = [128, 256, 512, 1024]
@@ -80,60 +78,82 @@ def run_kv_cache_experiment(
         with torch.no_grad():
             gen_result = controller.generate(input_ids, effective_new_tokens)
         
-        time_cached = sum(gen_result["latencies"])
-        latencies_cached = gen_result["latencies"]
-        metrics_cached = calculate_metrics(latencies_cached, effective_new_tokens, time_cached)
+        metrics_cached = calculate_metrics(
+            gen_result["latencies"], 
+            batch_size * effective_new_tokens, 
+            sum(gen_result["latencies"])
+        )
+        
+        res_cached = format_benchmark_result(
+            experiment_name="kv_cache",
+            model_name=f"gpt_{dim}d_{n_layers}l",
+            gen_result=gen_result,
+            metrics=metrics_cached,
+            config_overrides={
+                "kv_cache_enabled": True,
+                "cache_memory_mb": cache_memory,
+                "seq_len": seq_len,
+                "prompt_len": prompt_len,
+                "decode_len": effective_new_tokens,
+            }
+        )
+        results.append(res_cached)
         
         # ===== Test WITHOUT KV cache (manual generation) =====
+        # Note: We still use preallocated buffer logic for tokens to be fair, 
+        # but we don't pass the kv_cache to the model.
+        
         # Warmup without cache
         with torch.no_grad():
             for _ in range(2):
                 _ = model(input_ids, kv_cache=None)
-            if torch.cuda.is_available():
-                torch.cuda.synchronize()
         
         # Benchmark without cache
+        latencies_no_cache = []
+        output_tokens = torch.zeros((batch_size, prompt_len + effective_new_tokens), dtype=torch.long, device=device)
+        output_tokens[:, :prompt_len] = input_ids
+        
         with torch.no_grad():
-            generated = input_ids.clone()
-            if torch.cuda.is_available():
-                torch.cuda.synchronize()
+            # Prefill (no cache)
+            start_step = time.perf_counter()
+            _ = model(input_ids, kv_cache=None)
+            latencies_no_cache.append(time.perf_counter() - start_step)
             
-            start_no_cache = time.perf_counter()
-            for _ in range(effective_new_tokens):
-                logits = model(generated, kv_cache=None)
-                next_token = sample_top_k(logits[:, -1, :])
-                generated = torch.cat([generated, next_token], dim=1)
-            
-            if torch.cuda.is_available():
-                torch.cuda.synchronize()
-            time_no_cache = time.perf_counter() - start_no_cache
+            # Decode (no cache - recomputes everything)
+            for i in range(effective_new_tokens):
+                start_step = time.perf_counter()
+                # Pass all tokens generated so far
+                logits = model(output_tokens[:, :prompt_len+i], kv_cache=None)
+                next_token = torch.argmax(logits[:, -1, :], dim=-1, keepdim=True)
+                output_tokens[:, prompt_len+i:prompt_len+i+1] = next_token
+                latencies_no_cache.append(time.perf_counter() - start_step)
         
-        speedup = time_no_cache / time_cached if time_cached > 0 else 0
+        metrics_no_cache = calculate_metrics(
+            latencies_no_cache, 
+            batch_size * effective_new_tokens, 
+            sum(latencies_no_cache)
+        )
         
-        # Construct structured result
-        result = {
-            "experiment": "kv_cache",
-            "seq_len": seq_len,
-            "prompt_len": prompt_len,
-            "decode_len": effective_new_tokens,
-            "batch_size": batch_size,
-            "cache_memory_mb": cache_memory,
-            "time_with_cache_s": time_cached,
-            "time_without_cache_s": time_no_cache,
-            "speedup": speedup,
-            "ttft_ms": metrics_cached["ttft_ms"],
-            "tpot_avg_ms": metrics_cached["tpot_avg_ms"],
-            "tpot_p95_ms": metrics_cached["tpot_p95_ms"],
-            "throughput_tokens_per_sec": metrics_cached["throughput_tokens_per_sec"],
-            "throughput_no_cache": effective_new_tokens / time_no_cache,
-            "peak_memory_mb": gen_result["peak_memory_mb"],
-            "phase_times": gen_result["phase_times"],
-        }
-        results.append(result)
+        res_no_cache = format_benchmark_result(
+            experiment_name="kv_cache",
+            model_name=f"gpt_{dim}d_{n_layers}l",
+            gen_result={"latencies": latencies_no_cache}, # Fake gen_result
+            metrics=metrics_no_cache,
+            config_overrides={
+                "kv_cache_enabled": False,
+                "cache_memory_mb": 0,
+                "seq_len": seq_len,
+                "prompt_len": prompt_len,
+                "decode_len": effective_new_tokens,
+            }
+        )
+        results.append(res_no_cache)
+        
+        speedup = res_no_cache["total_latency_ms"] / res_cached["total_latency_ms"] if res_cached["total_latency_ms"] > 0 else 0
         
         print(f"seq_len={seq_len:4d} | cache={cache_memory:.2f}MB | "
-              f"cached={time_cached:.4f}s | no_cache={time_no_cache:.4f}s | "
-              f"speedup={speedup:.2f}x | peak_mem={result['peak_memory_mb']:.2f}MB")
+              f"cached={res_cached['total_latency_ms']/1000:.4f}s | no_cache={res_no_cache['total_latency_ms']/1000:.4f}s | "
+              f"speedup={speedup:.2f}x | peak_mem={res_cached['peak_memory_mb']:.2f}MB")
     
     # Save results
     if save_results:

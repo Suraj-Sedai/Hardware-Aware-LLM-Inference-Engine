@@ -40,19 +40,28 @@ class FlashAttention(nn.Module):
         k = self.k_proj(x)
         v = self.v_proj(x)
         
-        # reshape for multi-head attention
+        # reshape for multi-head attention: (B, T, n_heads, head_dim)
+        # Flash attention expects this shape
         q = q.view(B, T, self.n_heads, self.head_dim)
         k = k.view(B, T, self.n_heads, self.head_dim)
         v = v.view(B, T, self.n_heads, self.head_dim)
         
         # use KV cache if available
-        if kv_cache is not None and kv_cache.curr_len > 0:
-            K_cached, V_cached = kv_cache.get(layer_id)
-            # transpose for concat: (B, n_heads, seq, head_dim) -> (B, seq, n_heads, head_dim)
-            K_cached = K_cached.transpose(1, 2)
-            V_cached = V_cached.transpose(1, 2)
-            k = torch.cat([K_cached, k], dim=1)
-            v = torch.cat([V_cached, v], dim=1)
+        if kv_cache is not None:
+            # Transpose to (B, n_heads, T, head_dim) for cache compatibility
+            k_th = k.transpose(1, 2)
+            v_th = v.transpose(1, 2)
+            
+            # Use optimized method that writes to cache and returns view
+            K_all, V_all = kv_cache.get_for_attention(layer_id, k_th, v_th)
+            
+            # Update cache length once per layer
+            if layer_id == kv_cache.n_layers - 1:
+                kv_cache.curr_len += T
+            
+            # Transpose back to (B, T, n_heads, head_dim) for flash attention
+            k = K_all.transpose(1, 2)
+            v = V_all.transpose(1, 2)
         
         if FLASH_ATTN_AVAILABLE and x.is_cuda:
             # Use flash attention (expects B, T, n_heads, head_dim)

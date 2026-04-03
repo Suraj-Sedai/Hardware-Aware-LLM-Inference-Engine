@@ -20,8 +20,8 @@ def plot_sequence_length_results(results, save_path=None):
         return
     
     seq_lens = [r["seq_len"] for r in results]
-    throughputs = [r["throughput"] for r in results]
-    latencies = [r["latency"] for r in results]
+    throughputs = [r["throughput_tokens_per_sec"] for r in results]
+    latencies = [r["total_latency_ms"] / 1000 for r in results]
     
     fig, (ax1, ax2) = plt.subplots(1, 2, figsize=(12, 5))
     
@@ -35,7 +35,7 @@ def plot_sequence_length_results(results, save_path=None):
     # Latency plot
     ax2.plot(seq_lens, latencies, 'r-s', linewidth=2, markersize=8)
     ax2.set_xlabel('Sequence Length')
-    ax2.set_ylabel('Latency per Token (s)')
+    ax2.set_ylabel('Latency (s)')
     ax2.set_title('Latency vs Sequence Length')
     ax2.grid(True, alpha=0.3)
     
@@ -53,7 +53,7 @@ def plot_batch_size_results(results, save_path=None):
         return
     
     batch_sizes = [r["batch_size"] for r in results]
-    throughputs = [r["throughput"] for r in results]
+    throughputs = [r["throughput_tokens_per_sec"] for r in results]
     
     fig, ax = plt.subplots(figsize=(8, 5))
     
@@ -82,9 +82,22 @@ def plot_kv_cache_results(results, save_path=None):
     if not HAS_MATPLOTLIB or not results:
         return
     
-    seq_lens = [r["seq_len"] for r in results]
-    speedups = [r["speedup"] for r in results]
-    memory = [r["cache_memory_mb"] for r in results]
+    # Extract only cached results for sequence length and memory
+    cached_results = [r for r in results if r.get("kv_cache_enabled", True)]
+    
+    # Extract speedup (needs both cached and no-cache for same seq_len)
+    seq_lens = []
+    speedups = []
+    
+    seq_to_cached = {r["seq_len"]: r for r in results if r.get("kv_cache_enabled", True)}
+    seq_to_nocache = {r["seq_len"]: r for r in results if not r.get("kv_cache_enabled", True)}
+    
+    for seq in sorted(seq_to_cached.keys()):
+        if seq in seq_to_nocache:
+            seq_lens.append(seq)
+            cached_lat = seq_to_cached[seq]["total_latency_ms"]
+            nocache_lat = seq_to_nocache[seq]["total_latency_ms"]
+            speedups.append(nocache_lat / cached_lat if cached_lat > 0 else 0)
     
     fig, (ax1, ax2) = plt.subplots(1, 2, figsize=(12, 5))
     
@@ -100,7 +113,9 @@ def plot_kv_cache_results(results, save_path=None):
     ax1.legend()
     
     # Memory plot
-    ax2.plot(seq_lens, memory, 'purple', marker='o', linewidth=2, markersize=8)
+    cached_seqs = [r["seq_len"] for r in cached_results]
+    memory = [r["cache_memory_mb"] for r in cached_results]
+    ax2.plot(cached_seqs, memory, 'purple', marker='o', linewidth=2, markersize=8)
     ax2.set_xlabel('Sequence Length')
     ax2.set_ylabel('Cache Memory (MB)')
     ax2.set_title('KV Cache Memory Usage')
@@ -119,22 +134,33 @@ def plot_quantization_results(results, save_path=None):
     if not HAS_MATPLOTLIB or not results:
         return
     
-    models = [r["model"] for r in results]
-    sizes_fp32 = [r["size_fp32_mb"] for r in results]
-    sizes_int8 = [r["size_int8_mb"] for r in results]
-    throughput_fp32 = [r["throughput_fp32"] for r in results]
-    throughput_int8 = [r["throughput_int8"] for r in results]
+    # Group results by model base name (e.g., small, medium, large)
+    model_groups = {}
+    for r in results:
+        base_name = r["model_name"].split('_')[0]
+        if base_name not in model_groups:
+            model_groups[base_name] = {}
+        model_groups[base_name][r["precision"]] = r
+    
+    bases = sorted(model_groups.keys())
     
     fig, (ax1, ax2) = plt.subplots(1, 2, figsize=(12, 5))
     
-    x = range(len(models))
+    x = range(len(bases))
     width = 0.35
+    
+    sizes_fp32 = [model_groups[b]["fp32"]["size_mb"] for b in bases]
+    # Handle optional int8
+    sizes_int8 = [model_groups[b].get("int8_manual", {"size_mb": 0})["size_mb"] for b in bases]
+    
+    tp_fp32 = [model_groups[b]["fp32"]["throughput_tokens_per_sec"] for b in bases]
+    tp_int8 = [model_groups[b].get("int8_manual", {"throughput_tokens_per_sec": 0})["throughput_tokens_per_sec"] for b in bases]
     
     # Size comparison
     ax1.bar([i - width/2 for i in x], sizes_fp32, width, label='FP32', color='steelblue')
     ax1.bar([i + width/2 for i in x], sizes_int8, width, label='INT8', color='coral')
     ax1.set_xticks(x)
-    ax1.set_xticklabels(models)
+    ax1.set_xticklabels(bases)
     ax1.set_xlabel('Model')
     ax1.set_ylabel('Size (MB)')
     ax1.set_title('Model Size: FP32 vs INT8')
@@ -142,10 +168,10 @@ def plot_quantization_results(results, save_path=None):
     ax1.grid(True, alpha=0.3, axis='y')
     
     # Throughput comparison
-    ax2.bar([i - width/2 for i in x], throughput_fp32, width, label='FP32', color='steelblue')
-    ax2.bar([i + width/2 for i in x], throughput_int8, width, label='INT8', color='coral')
+    ax2.bar([i - width/2 for i in x], tp_fp32, width, label='FP32', color='steelblue')
+    ax2.bar([i + width/2 for i in x], tp_int8, width, label='INT8', color='coral')
     ax2.set_xticks(x)
-    ax2.set_xticklabels(models)
+    ax2.set_xticklabels(bases)
     ax2.set_xlabel('Model')
     ax2.set_ylabel('Throughput (tokens/sec)')
     ax2.set_title('Throughput: FP32 vs INT8')
@@ -208,7 +234,7 @@ def plot_summary(all_results, save_path=None):
     if "sequence_length" in all_results:
         results = all_results["sequence_length"]
         seq_lens = [r["seq_len"] for r in results]
-        throughputs = [r["throughput"] for r in results]
+        throughputs = [r["throughput_tokens_per_sec"] for r in results]
         axes[0, 0].plot(seq_lens, throughputs, 'b-o', linewidth=2)
         axes[0, 0].set_xlabel('Sequence Length')
         axes[0, 0].set_ylabel('Throughput (tok/s)')
@@ -219,7 +245,7 @@ def plot_summary(all_results, save_path=None):
     if "batch_size" in all_results:
         results = all_results["batch_size"]
         batch_sizes = [r["batch_size"] for r in results]
-        throughputs = [r["throughput"] for r in results]
+        throughputs = [r["throughput_tokens_per_sec"] for r in results]
         axes[0, 1].bar(range(len(batch_sizes)), throughputs, color='steelblue')
         axes[0, 1].set_xticks(range(len(batch_sizes)))
         axes[0, 1].set_xticklabels(batch_sizes)
@@ -230,12 +256,21 @@ def plot_summary(all_results, save_path=None):
     
     # Exp 3: KV Cache
     if "kv_cache" in all_results:
-        results = all_results["kv_cache"]
-        seq_lens = [r["seq_len"] for r in results]
-        speedups = [r["speedup"] for r in results]
-        axes[1, 0].bar(range(len(seq_lens)), speedups, color='green', alpha=0.7)
-        axes[1, 0].set_xticks(range(len(seq_lens)))
-        axes[1, 0].set_xticklabels(seq_lens)
+        # Extract only cached results for sequence length and speedup
+        seq_to_cached = {r["seq_len"]: r for r in all_results["kv_cache"] if r.get("kv_cache_enabled", True)}
+        seq_to_nocache = {r["seq_len"]: r for r in all_results["kv_cache"] if not r.get("kv_cache_enabled", True)}
+        
+        plot_seqs = sorted(seq_to_cached.keys())
+        plot_speedups = []
+        for s in plot_seqs:
+            if s in seq_to_nocache:
+                plot_speedups.append(seq_to_nocache[s]["total_latency_ms"] / seq_to_cached[s]["total_latency_ms"])
+            else:
+                plot_speedups.append(0)
+                
+        axes[1, 0].bar(range(len(plot_seqs)), plot_speedups, color='green', alpha=0.7)
+        axes[1, 0].set_xticks(range(len(plot_seqs)))
+        axes[1, 0].set_xticklabels(plot_seqs)
         axes[1, 0].set_xlabel('Sequence Length')
         axes[1, 0].set_ylabel('Speedup (x)')
         axes[1, 0].set_title('3. KV Cache Speedup')
@@ -244,15 +279,30 @@ def plot_summary(all_results, save_path=None):
     
     # Exp 4: Quantization
     if "quantization" in all_results:
-        results = all_results["quantization"]
-        models = [r["model"] for r in results]
-        compression = [r["compression_ratio"] for r in results]
-        axes[1, 1].bar(range(len(models)), compression, color='coral')
-        axes[1, 1].set_xticks(range(len(models)))
-        axes[1, 1].set_xticklabels(models)
+        # Group by precision
+        res = all_results["quantization"]
+        precisions = ["fp32", "int8_manual"]
+        # Find speedups if both exist for same model
+        model_to_prec = {}
+        for r in res:
+            m = r["model_name"].split('_')[0]
+            if m not in model_to_prec: model_to_prec[m] = {}
+            model_to_prec[m][r["precision"]] = r
+            
+        bases = sorted(model_to_prec.keys())
+        speedups = []
+        for b in bases:
+            if "int8_manual" in model_to_prec[b]:
+                speedups.append(model_to_prec[b]["int8_manual"]["throughput_tokens_per_sec"] / model_to_prec[b]["fp32"]["throughput_tokens_per_sec"])
+            else:
+                speedups.append(1.0)
+                
+        axes[1, 1].bar(range(len(bases)), speedups, color='coral')
+        axes[1, 1].set_xticks(range(len(bases)))
+        axes[1, 1].set_xticklabels(bases)
         axes[1, 1].set_xlabel('Model')
-        axes[1, 1].set_ylabel('Compression Ratio (x)')
-        axes[1, 1].set_title('4. Quantization Compression')
+        axes[1, 1].set_ylabel('Speedup (x)')
+        axes[1, 1].set_title('4. INT8 vs FP32 Speedup')
         axes[1, 1].grid(True, alpha=0.3, axis='y')
     
     plt.tight_layout()
