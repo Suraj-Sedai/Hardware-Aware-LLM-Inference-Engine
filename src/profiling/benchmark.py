@@ -1,5 +1,4 @@
 """Profiling and benchmarking utilities."""
-import time
 import torch
 
 
@@ -68,9 +67,23 @@ def get_cpu_utilization():
         return 0.0
 
 
-def benchmark_generation(model, input_ids, kv_cache, max_new_tokens, sample_fn=None):
-    """Benchmark token generation speed using InferenceController."""
+def benchmark_generation(
+    model,
+    input_ids,
+    kv_cache,
+    max_new_tokens,
+    sample_fn=None,
+    *,
+    experiment_name="generation",
+    model_name="model",
+    variant_name="default",
+    config=None,
+    use_kv_cache=True,
+):
+    """Benchmark generation and return the shared result schema."""
     from ..inference.controller import InferenceController
+    from .metrics import build_benchmark_result
+
     device = input_ids.device
     controller = InferenceController(model, kv_cache, device)
     
@@ -78,16 +91,29 @@ def benchmark_generation(model, input_ids, kv_cache, max_new_tokens, sample_fn=N
     controller.warmup(input_ids, max_new_tokens, trials=1)
     
     # Benchmark
-    kv_cache.reset()
-    result = controller.generate(input_ids, max_new_tokens, sample_fn=sample_fn)
-    
-    elapsed = sum(result["latencies"])
-    
-    return {
-        "total_time": elapsed,
-        "tokens_per_sec": (input_ids.shape[0] * max_new_tokens) / elapsed if elapsed > 0 else 0,
-        "latency_per_token": elapsed / max_new_tokens if max_new_tokens > 0 else 0,
-        "gpu_util": get_gpu_utilization(),
-        "cpu_util": get_cpu_utilization(),
-        "peak_memory_mb": result["peak_memory_mb"],
+    if kv_cache is not None:
+        kv_cache.reset()
+    result = controller.generate(input_ids, max_new_tokens, sample_fn=sample_fn, use_kv_cache=use_kv_cache)
+
+    benchmark_config = {
+        "batch_size": int(input_ids.shape[0]),
+        "prompt_len": int(input_ids.shape[1]),
+        "decode_len": int(max_new_tokens),
     }
+    if config:
+        benchmark_config.update(config)
+
+    return build_benchmark_result(
+        experiment_name=experiment_name,
+        model_name=model_name,
+        device=device,
+        gen_result=result,
+        total_tokens=input_ids.shape[0] * max_new_tokens,
+        config=benchmark_config,
+        variant_name=variant_name,
+        extras={
+            "gpu_util": float(get_gpu_utilization()),
+            "cpu_util": float(get_cpu_utilization()),
+            "kv_cache_enabled": bool(use_kv_cache and kv_cache is not None),
+        },
+    )

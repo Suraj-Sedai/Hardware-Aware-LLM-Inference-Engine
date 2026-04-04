@@ -14,7 +14,7 @@ from pathlib import Path
 from src.model_core import GPT
 from src.kv_cache import KVCacheManager
 from src.inference.controller import InferenceController
-from src.profiling import get_device, calculate_metrics, format_benchmark_result
+from src.profiling import get_device, build_benchmark_result
 from src.optimizations.quantization import (
     quantize_model, 
     quantize_model_dynamic,
@@ -73,19 +73,22 @@ def run_quantization_experiment(
         with torch.no_grad():
             res_fp32 = controller.generate(input_ids, max_new_tokens)
         
-        metrics_fp32 = calculate_metrics(res_fp32["latencies"], batch_size * max_new_tokens, sum(res_fp32["latencies"]))
-        
-        formatted_fp32 = format_benchmark_result(
+        formatted_fp32 = build_benchmark_result(
             experiment_name="quantization",
             model_name=f"{name}_fp32",
+            device=device,
             gen_result=res_fp32,
-            metrics=metrics_fp32,
-            config_overrides={
-                "precision": "fp32",
-                "size_mb": size_fp32,
+            total_tokens=batch_size * max_new_tokens,
+            config={
                 "prompt_len": prompt_len,
                 "decode_len": max_new_tokens,
                 "batch_size": batch_size,
+                "seq_len": seq_len,
+            },
+            variant_name="fp32",
+            extras={
+                "precision": "fp32",
+                "size_mb": size_fp32,
             }
         )
         results.append(formatted_fp32)
@@ -109,27 +112,30 @@ def run_quantization_experiment(
             with torch.no_grad():
                 res_int8 = controller_int8.generate(input_ids, max_new_tokens)
             
-            metrics_int8 = calculate_metrics(res_int8["latencies"], batch_size * max_new_tokens, sum(res_int8["latencies"]))
-            
-            formatted_int8 = format_benchmark_result(
+            formatted_int8 = build_benchmark_result(
                 experiment_name="quantization",
                 model_name=f"{name}_int8_manual",
+                device=device,
                 gen_result=res_int8,
-                metrics=metrics_int8,
-                config_overrides={
-                    "precision": "int8_manual",
-                    "size_mb": size_int8,
+                total_tokens=batch_size * max_new_tokens,
+                config={
                     "prompt_len": prompt_len,
                     "decode_len": max_new_tokens,
                     "batch_size": batch_size,
+                    "seq_len": seq_len,
+                },
+                variant_name="int8_manual",
+                extras={
+                    "precision": "int8_manual",
+                    "size_mb": size_int8,
                 }
             )
             results.append(formatted_int8)
             
-            print(f"{name:8s} | FP32: size={size_fp32:6.1f}MB, throughput={metrics_fp32['throughput_tokens_per_sec']:8.2f} tok/s")
-            print(f"         | INT8: size={size_int8:6.1f}MB, throughput={metrics_int8['throughput_tokens_per_sec']:8.2f} tok/s")
+            print(f"{name:8s} | FP32: size={size_fp32:6.1f}MB, throughput={formatted_fp32['metrics']['throughput_tokens_per_sec']:8.2f} tok/s")
+            print(f"         | INT8: size={size_int8:6.1f}MB, throughput={formatted_int8['metrics']['throughput_tokens_per_sec']:8.2f} tok/s")
         else:
-            print(f"{name:8s} | FP32: size={size_fp32:6.1f}MB, throughput={metrics_fp32['throughput_tokens_per_sec']:8.2f} tok/s")
+            print(f"{name:8s} | FP32: size={size_fp32:6.1f}MB, throughput={formatted_fp32['metrics']['throughput_tokens_per_sec']:8.2f} tok/s")
             print(f"         | INT8 manual quantization skipped (no CUDA)")
 
     # Save results

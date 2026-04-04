@@ -14,14 +14,26 @@ except ImportError:
     print("Warning: matplotlib not installed. Plots will not be generated.")
 
 
+def _config(result, key, default=0):
+    return result.get("config", {}).get(key, default)
+
+
+def _metric(result, key, default=0.0):
+    return result.get("metrics", {}).get(key, default)
+
+
+def _extra(result, key, default=0):
+    return result.get("extras", {}).get(key, default)
+
+
 def plot_sequence_length_results(results, save_path=None):
     """Plot sequence length experiment results."""
     if not HAS_MATPLOTLIB or not results:
         return
     
-    seq_lens = [r["seq_len"] for r in results]
-    throughputs = [r["throughput_tokens_per_sec"] for r in results]
-    latencies = [r["total_latency_ms"] / 1000 for r in results]
+    seq_lens = [_config(r, "seq_len") for r in results]
+    throughputs = [_metric(r, "throughput_tokens_per_sec") for r in results]
+    latencies = [_metric(r, "total_latency_ms") / 1000 for r in results]
     
     fig, (ax1, ax2) = plt.subplots(1, 2, figsize=(12, 5))
     
@@ -52,8 +64,8 @@ def plot_batch_size_results(results, save_path=None):
     if not HAS_MATPLOTLIB or not results:
         return
     
-    batch_sizes = [r["batch_size"] for r in results]
-    throughputs = [r["throughput_tokens_per_sec"] for r in results]
+    batch_sizes = [_config(r, "batch_size") for r in results]
+    throughputs = [_metric(r, "throughput_tokens_per_sec") for r in results]
     
     fig, ax = plt.subplots(figsize=(8, 5))
     
@@ -83,20 +95,20 @@ def plot_kv_cache_results(results, save_path=None):
         return
     
     # Extract only cached results for sequence length and memory
-    cached_results = [r for r in results if r.get("kv_cache_enabled", True)]
+    cached_results = [r for r in results if _extra(r, "kv_cache_enabled", True)]
     
     # Extract speedup (needs both cached and no-cache for same seq_len)
     seq_lens = []
     speedups = []
     
-    seq_to_cached = {r["seq_len"]: r for r in results if r.get("kv_cache_enabled", True)}
-    seq_to_nocache = {r["seq_len"]: r for r in results if not r.get("kv_cache_enabled", True)}
+    seq_to_cached = {_config(r, "seq_len"): r for r in results if _extra(r, "kv_cache_enabled", True)}
+    seq_to_nocache = {_config(r, "seq_len"): r for r in results if not _extra(r, "kv_cache_enabled", True)}
     
     for seq in sorted(seq_to_cached.keys()):
         if seq in seq_to_nocache:
             seq_lens.append(seq)
-            cached_lat = seq_to_cached[seq]["total_latency_ms"]
-            nocache_lat = seq_to_nocache[seq]["total_latency_ms"]
+            cached_lat = _metric(seq_to_cached[seq], "total_latency_ms")
+            nocache_lat = _metric(seq_to_nocache[seq], "total_latency_ms")
             speedups.append(nocache_lat / cached_lat if cached_lat > 0 else 0)
     
     fig, (ax1, ax2) = plt.subplots(1, 2, figsize=(12, 5))
@@ -113,8 +125,8 @@ def plot_kv_cache_results(results, save_path=None):
     ax1.legend()
     
     # Memory plot
-    cached_seqs = [r["seq_len"] for r in cached_results]
-    memory = [r["cache_memory_mb"] for r in cached_results]
+    cached_seqs = [_config(r, "seq_len") for r in cached_results]
+    memory = [_extra(r, "cache_memory_mb") for r in cached_results]
     ax2.plot(cached_seqs, memory, 'purple', marker='o', linewidth=2, markersize=8)
     ax2.set_xlabel('Sequence Length')
     ax2.set_ylabel('Cache Memory (MB)')
@@ -140,7 +152,7 @@ def plot_quantization_results(results, save_path=None):
         base_name = r["model_name"].split('_')[0]
         if base_name not in model_groups:
             model_groups[base_name] = {}
-        model_groups[base_name][r["precision"]] = r
+        model_groups[base_name][_extra(r, "precision")] = r
     
     bases = sorted(model_groups.keys())
     
@@ -149,12 +161,12 @@ def plot_quantization_results(results, save_path=None):
     x = range(len(bases))
     width = 0.35
     
-    sizes_fp32 = [model_groups[b]["fp32"]["size_mb"] for b in bases]
+    sizes_fp32 = [_extra(model_groups[b]["fp32"], "size_mb") for b in bases]
     # Handle optional int8
-    sizes_int8 = [model_groups[b].get("int8_manual", {"size_mb": 0})["size_mb"] for b in bases]
+    sizes_int8 = [_extra(model_groups[b].get("int8_manual", {}), "size_mb") for b in bases]
     
-    tp_fp32 = [model_groups[b]["fp32"]["throughput_tokens_per_sec"] for b in bases]
-    tp_int8 = [model_groups[b].get("int8_manual", {"throughput_tokens_per_sec": 0})["throughput_tokens_per_sec"] for b in bases]
+    tp_fp32 = [_metric(model_groups[b]["fp32"], "throughput_tokens_per_sec") for b in bases]
+    tp_int8 = [_metric(model_groups[b].get("int8_manual", {}), "throughput_tokens_per_sec") for b in bases]
     
     # Size comparison
     ax1.bar([i - width/2 for i in x], sizes_fp32, width, label='FP32', color='steelblue')
@@ -233,8 +245,8 @@ def plot_summary(all_results, save_path=None):
     # Exp 1: Sequence Length
     if "sequence_length" in all_results:
         results = all_results["sequence_length"]
-        seq_lens = [r["seq_len"] for r in results]
-        throughputs = [r["throughput_tokens_per_sec"] for r in results]
+        seq_lens = [_config(r, "seq_len") for r in results]
+        throughputs = [_metric(r, "throughput_tokens_per_sec") for r in results]
         axes[0, 0].plot(seq_lens, throughputs, 'b-o', linewidth=2)
         axes[0, 0].set_xlabel('Sequence Length')
         axes[0, 0].set_ylabel('Throughput (tok/s)')
@@ -244,8 +256,8 @@ def plot_summary(all_results, save_path=None):
     # Exp 2: Batch Size
     if "batch_size" in all_results:
         results = all_results["batch_size"]
-        batch_sizes = [r["batch_size"] for r in results]
-        throughputs = [r["throughput_tokens_per_sec"] for r in results]
+        batch_sizes = [_config(r, "batch_size") for r in results]
+        throughputs = [_metric(r, "throughput_tokens_per_sec") for r in results]
         axes[0, 1].bar(range(len(batch_sizes)), throughputs, color='steelblue')
         axes[0, 1].set_xticks(range(len(batch_sizes)))
         axes[0, 1].set_xticklabels(batch_sizes)
@@ -257,14 +269,14 @@ def plot_summary(all_results, save_path=None):
     # Exp 3: KV Cache
     if "kv_cache" in all_results:
         # Extract only cached results for sequence length and speedup
-        seq_to_cached = {r["seq_len"]: r for r in all_results["kv_cache"] if r.get("kv_cache_enabled", True)}
-        seq_to_nocache = {r["seq_len"]: r for r in all_results["kv_cache"] if not r.get("kv_cache_enabled", True)}
+        seq_to_cached = {_config(r, "seq_len"): r for r in all_results["kv_cache"] if _extra(r, "kv_cache_enabled", True)}
+        seq_to_nocache = {_config(r, "seq_len"): r for r in all_results["kv_cache"] if not _extra(r, "kv_cache_enabled", True)}
         
         plot_seqs = sorted(seq_to_cached.keys())
         plot_speedups = []
         for s in plot_seqs:
             if s in seq_to_nocache:
-                plot_speedups.append(seq_to_nocache[s]["total_latency_ms"] / seq_to_cached[s]["total_latency_ms"])
+                plot_speedups.append(_metric(seq_to_nocache[s], "total_latency_ms") / _metric(seq_to_cached[s], "total_latency_ms"))
             else:
                 plot_speedups.append(0)
                 
@@ -287,13 +299,13 @@ def plot_summary(all_results, save_path=None):
         for r in res:
             m = r["model_name"].split('_')[0]
             if m not in model_to_prec: model_to_prec[m] = {}
-            model_to_prec[m][r["precision"]] = r
+            model_to_prec[m][_extra(r, "precision")] = r
             
         bases = sorted(model_to_prec.keys())
         speedups = []
         for b in bases:
             if "int8_manual" in model_to_prec[b]:
-                speedups.append(model_to_prec[b]["int8_manual"]["throughput_tokens_per_sec"] / model_to_prec[b]["fp32"]["throughput_tokens_per_sec"])
+                speedups.append(_metric(model_to_prec[b]["int8_manual"], "throughput_tokens_per_sec") / _metric(model_to_prec[b]["fp32"], "throughput_tokens_per_sec"))
             else:
                 speedups.append(1.0)
                 

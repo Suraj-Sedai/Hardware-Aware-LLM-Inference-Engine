@@ -9,7 +9,7 @@ from pathlib import Path
 from src.model_core import GPT
 from src.kv_cache import KVCacheManager
 from src.inference.controller import InferenceController
-from src.profiling import get_device, calculate_metrics, format_benchmark_result
+from src.profiling import get_device, build_benchmark_result
 
 
 def run_sequence_length_experiment(
@@ -58,20 +58,13 @@ def run_sequence_length_experiment(
         with torch.no_grad():
             gen_result = controller.generate(input_ids, max_new_tokens)
         
-        # Calculate metrics
-        metrics = calculate_metrics(
-            gen_result["latencies"], 
-            batch_size * max_new_tokens, 
-            sum(gen_result["latencies"])
-        )
-        
-        # Construct standardized result
-        result = format_benchmark_result(
+        result = build_benchmark_result(
             experiment_name="sequence_length",
             model_name=f"gpt_{dim}d_{n_layers}l",
+            device=device,
             gen_result=gen_result,
-            metrics=metrics,
-            config_overrides={
+            total_tokens=batch_size * max_new_tokens,
+            config={
                 "seq_len": seq_len,
                 "prompt_len": prompt_len,
                 "decode_len": max_new_tokens,
@@ -80,10 +73,10 @@ def run_sequence_length_experiment(
         )
         results.append(result)
         
-        print(f"seq_len={seq_len:4d} | TTFT={result['ttft_ms']:7.2f}ms | "
-              f"TPOT={result['tpot_avg_ms']:6.2f}ms | "
-              f"throughput={result['throughput_tokens_per_sec']:7.2f} tok/s | "
-              f"peak_mem={result['peak_memory_mb']:.2f}MB")
+        print(f"seq_len={seq_len:4d} | TTFT={result['metrics']['ttft_ms']:7.2f}ms | "
+              f"TPOT={result['metrics']['tpot_avg_ms']:6.2f}ms | "
+              f"throughput={result['metrics']['throughput_tokens_per_sec']:7.2f} tok/s | "
+              f"peak_mem={result['metrics']['peak_memory_mb']:.2f}MB")
     
     # Save results
     if save_results:

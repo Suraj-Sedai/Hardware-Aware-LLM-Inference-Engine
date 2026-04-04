@@ -16,10 +16,13 @@ class InferenceController:
         self.ablation_flags = ablation_flags or {}
         self.latency_tracker = LatencyTracker(device)
     
-    def generate(self, input_ids, max_new_tokens, temperature=1.0, top_k=50, sample_fn=None):
+    def generate(self, input_ids, max_new_tokens, temperature=1.0, top_k=50, sample_fn=None, use_kv_cache=True):
         """Generate tokens with preallocated buffer and profiling."""
         B, T_prompt = input_ids.shape
         max_total_len = T_prompt + max_new_tokens
+        active_kv_cache = self.kv_cache if use_kv_cache else None
+        self.latency_tracker.phase_times = {}
+        self.latency_tracker.events = {}
         
         # Preallocate output token buffer
         # This avoids torch.cat at every step
@@ -46,7 +49,7 @@ class InferenceController:
         
         # Prefill forward pass
         # We wrap the model forward to allow per-layer profiling if needed
-        logits = self.model(input_ids, self.kv_cache, latency_tracker=self.latency_tracker)
+        logits = self.model(input_ids, active_kv_cache, latency_tracker=self.latency_tracker)
         
         self.latency_tracker.end_phase("prefill")
         token_latencies.append(time.perf_counter() - step_start)
@@ -58,11 +61,15 @@ class InferenceController:
         for i in range(max_new_tokens):
             step_start = time.perf_counter()
             
-            # Use only the last token for decode step
-            x = output_tokens[:, curr_len-1:curr_len]
+            if use_kv_cache:
+                # Use only the last token when prior states are cached.
+                x = output_tokens[:, curr_len - 1:curr_len]
+            else:
+                # Recompute the full prefix without building a new tensor every step.
+                x = output_tokens[:, :curr_len]
             
             # Forward pass
-            logits = self.model(x, self.kv_cache, latency_tracker=self.latency_tracker)
+            logits = self.model(x, active_kv_cache, latency_tracker=self.latency_tracker)
             
             # Sample next token
             next_token = sample_fn(logits[:, -1, :])
@@ -92,6 +99,8 @@ class InferenceController:
     def warmup(self, input_ids, max_new_tokens, trials=3):
         """Run warmup trials."""
         for _ in range(trials):
+            if self.kv_cache is not None:
+                self.kv_cache.reset()
+            _ = self.generate(input_ids, max_new_tokens, use_kv_cache=self.kv_cache is not None)
+        if self.kv_cache is not None:
             self.kv_cache.reset()
-            _ = self.generate(input_ids, max_new_tokens)
-        self.kv_cache.reset()

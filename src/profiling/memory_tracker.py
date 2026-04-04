@@ -19,7 +19,10 @@ def get_gpu_max_memory_mb():
 def reset_gpu_memory_stats():
     """Reset peak memory stats."""
     if torch.cuda.is_available():
-        torch.cuda.reset_peak_memory_stats(0)
+        try:
+            torch.cuda.reset_peak_memory_stats(0)
+        except RuntimeError:
+            pass
 
 
 def get_memory_stats():

@@ -5,11 +5,11 @@ from ..model_core.gpt import GPT
 from ..kv_cache.contiguous_cache import KVCacheManager
 from ..inference.controller import InferenceController
 from ..inference.workload_simulator import WorkloadSimulator, run_workload
-from ..profiling.metrics import calculate_metrics
+from ..profiling.metrics import build_benchmark_result
 
 
 def run_workload_benchmark(model_config, num_requests, device="cuda"):
-    """Run a workload benchmark."""
+    """Run a workload benchmark using the shared schema."""
     model = GPT(**model_config).to(device)
     # We use a large enough batch size for sequential simulation
     kv_cache = KVCacheManager(
@@ -40,13 +40,37 @@ def run_workload_benchmark(model_config, num_requests, device="cuda"):
     total_tokens = sum([res["tokens"].shape[1] - (requests[i]["prompt_len"]) for i, res in enumerate(results)])
     total_time = sum([sum(res["latencies"]) for res in results])
     
-    return {
-        "avg_ttft_ms": np.mean(all_ttfts),
-        "p95_ttft_ms": np.percentile(all_ttfts, 95),
-        "avg_tpot_ms": np.mean(all_tpots) * 1000,
-        "p95_tpot_ms": np.percentile(all_tpots, 95) * 1000,
-        "throughput_tokens_per_sec": total_tokens / total_time
+    aggregate_result = {
+        "latencies": [float(np.mean(all_ttfts)) / 1000] + [float(x) for x in all_tpots],
+        "phase_times": {
+            "prefill": float(np.sum(all_ttfts)),
+            "decode": float(np.sum(all_tpots) * 1000),
+        },
+        "peak_memory_mb": float(max((res.get("peak_memory_mb", 0.0) for res in results), default=0.0)),
     }
+
+    return build_benchmark_result(
+        experiment_name="workload",
+        model_name=f"gpt_{model_config['dim']}d_{model_config['n_layers']}l",
+        device=device,
+        gen_result=aggregate_result,
+        total_tokens=total_tokens,
+        config={
+            "batch_size": 1,
+            "prompt_len": int(np.mean([req["prompt_len"] for req in requests])) if requests else 0,
+            "decode_len": int(np.mean([req["decode_len"] for req in requests])) if requests else 0,
+            "seq_len": model_config["max_seq_len"],
+        },
+        variant_name="sequential_requests",
+        extras={
+            "request_count": num_requests,
+            "avg_ttft_ms": float(np.mean(all_ttfts)) if all_ttfts else 0.0,
+            "p95_ttft_ms": float(np.percentile(all_ttfts, 95)) if all_ttfts else 0.0,
+            "avg_tpot_ms": float(np.mean(all_tpots) * 1000) if all_tpots else 0.0,
+            "p95_tpot_ms": float(np.percentile(all_tpots, 95) * 1000) if all_tpots else 0.0,
+            "throughput_tokens_per_sec_observed": float(total_tokens / total_time) if total_time > 0 else 0.0,
+        },
+    )
 
 
 if __name__ == "__main__":
@@ -60,6 +84,6 @@ if __name__ == "__main__":
     
     device = "cuda" if torch.cuda.is_available() else "cpu"
     print(f"Running workload benchmark on {device}...")
-    metrics = run_workload_benchmark(config, num_requests=10, device=device)
-    for k, v in metrics.items():
-        print(f"{k}: {v:.4f}")
+    result = run_workload_benchmark(config, num_requests=10, device=device)
+    for key, value in result["metrics"].items():
+        print(f"{key}: {value:.4f}")
