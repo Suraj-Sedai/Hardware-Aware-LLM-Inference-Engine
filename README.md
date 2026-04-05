@@ -1,61 +1,33 @@
 # Hardware-Aware LLM Inference Engine
 
+A compact research-oriented inference engine for GPT-style language models, built to study hardware-aware serving techniques such as KV caching, continuous batching primitives, profiling, and quantization.
+
 ## Overview
-A high-performance LLM inference engine optimized for hardware acceleration, featuring advanced techniques like continuous batching, KV cache optimization, and custom CUDA/Triton kernels.
 
-## Design Notes
+This project provides a minimal but structured implementation of the LLM inference path:
 
-### Architecture
-- **Tokenizer**: Handles tokenization and prompt templates
-- **Model Core**: Transformer forward pass implementation
-- **KV Cache**: Paged and quantized key-value cache management
-- **Inference**: Prefill and decoding loop orchestration
-- **Sampling**: Advanced sampling strategies (top-k, top-p, temperature, repetition penalty)
-- **Scheduler**: Continuous batching with dynamic scheduling
-- **Profiling**: GPU profiling tools for throughput and latency analysis
-- **Optimizations**: Flash Attention, fused kernels, and quantization techniques
+- tokenizer and input handling
+- GPT-style transformer forward pass
+- KV cache management for autoregressive decoding
+- generation control and sampling
+- profiling and benchmark utilities
+- optimization experiments including flash-attention and quantization scaffolds
 
-### Features
-- Continuous batching for improved throughput
-- Paged KV cache with quantization support
-- Flash Attention integration
-- Custom fused kernels
-- Dynamic scheduling
-- Comprehensive profiling and benchmarking
+## Repository Structure
 
-## Project Structure
-```
-├─ README.md                # This file
-├─ requirements.txt         # Python dependencies
-├─ configs/                 # Model and system configurations
-├─ src/                     # Source code
-│  ├─ tokenizer/            # Tokenizer and prompt templates
-│  ├─ model_core/           # Transformer forward pass
-│  ├─ kv_cache/             # KV cache logic (paged + quantized)
-│  ├─ inference/            # Prefill + decoding loop
-│  ├─ sampling/             # Sampling strategies
-│  ├─ scheduler/            # Continuous batching / dynamic scheduling
-│  ├─ profiling/            # GPU profiling scripts
-│  └─ optimizations/        # Flash Attention / fused kernels / quantization
-├─ notebooks/               # Experiments and visualizations
-└─ benchmarks/              # Performance benchmarks
+```text
+configs/      Model configuration helpers
+src/          Core implementation
+benchmarks/   Performance experiments and plotting
+tests/        Unit tests
+notebooks/    Exploratory experiments
+results/      Generated benchmark artifacts
 ```
 
-## Getting Started
+## Status
 
-### Installation
-```bash
-pip install -r requirements.txt
-```
+The current repository is best understood as an inference systems prototype: the contiguous KV cache and controller-driven generation path are implemented, while several advanced modules remain experimental or incomplete.
 
-### Usage
-Coming soon...
+## Documentation
 
-## Benchmarks
-- Token/sec throughput
-- Memory usage analysis
-- Latency measurements
-- Comparison graphs
-
-## License
-TBD
+Detailed technical documentation is available in [PROJECT_TECHNICAL_DOCUMENTATION.md](PROJECT_TECHNICAL_DOCUMENTATION.md).
