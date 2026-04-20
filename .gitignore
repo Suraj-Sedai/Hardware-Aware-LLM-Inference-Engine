@@ -58,14 +58,15 @@ weights/
 models/
 
 # Data files
-*.csv
-*.json
-*.parquet
 data/
 datasets/
+artifacts/
 
 # Profiling outputs
 *.prof
+
+steps.txt
+
 *.lprof
 profile_results/
 traces/
