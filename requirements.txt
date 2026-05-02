@@ -1,0 +1,26 @@
+# Core ML / inference dependencies
+torch>=2.0.0
+transformers>=4.35.0
+accelerate>=0.24.0
+sentencepiece>=0.1.99
+tokenizers>=0.14.0
+
+# Numerical computing
+numpy>=1.24.0
+scipy>=1.11.0
+
+# CUDA / hardware utilities
+nvidia-ml-py>=12.535.77
+
+# Quantization support
+bitsandbytes>=0.41.0
+
+# Benchmarking and profiling
+psutil>=5.9.0
+
+# CLI and configuration
+pyyaml>=6.0
+tqdm>=4.65.0
+
+# Testing
+pytest>=7.4.0

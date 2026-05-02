@@ -1,0 +1,86 @@
+# Python virtual environments
+venv/
+.venv/
+env/
+.env/
+ENV/
+
+# Python bytecode
+__pycache__/
+*.py[cod]
+*$py.class
+*.pyo
+
+# Distribution / packaging
+dist/
+build/
+*.egg-info/
+*.egg
+.eggs/
+
+# Installer logs
+pip-log.txt
+pip-delete-this-directory.txt
+
+# Unit test / coverage reports
+htmlcov/
+.tox/
+.nox/
+.coverage
+.coverage.*
+.cache
+nosetests.xml
+coverage.xml
+*.cover
+*.py,cover
+.hypothesis/
+.pytest_cache/
+pytest_cache/
+
+# Jupyter Notebook checkpoints
+.ipynb_checkpoints/
+
+# pyenv
+.python-version
+
+# mypy
+.mypy_cache/
+.dmypy.json
+dmypy.json
+
+# Pyre type checker
+.pyre/
+
+# IDE / editor files
+.idea/
+.vscode/
+*.swp
+*.swo
+*~
+
+# OS-specific files
+.DS_Store
+Thumbs.db
+
+# CUDA / compiled extensions
+*.so
+*.cu.o
+*.ptx
+
+# Model weights and large binary files
+*.bin
+*.pt
+*.pth
+*.ckpt
+*.safetensors
+*.gguf
+
+# Logs
+*.log
+logs/
+
+# Secrets / environment configs
+.env
+.env.*
+secrets.yaml
+secrets.json
