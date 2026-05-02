@@ -43,4 +43,4 @@ mask = torch.tril(torch.ones(T, T)).unsqueeze(0).unsqueeze(1)  # Causal mask
 
 block = TransformerBlock(hidden_size=D, num_heads=H, ff_hidden_size=D_ff)
 output = block(x, mask=mask)
-print(output.shape)  # Should print: torch.Size([8, 16, 64])
+print(output.shape)  # Should print: torch.Size([8, 16, 64]) 
