@@ -1,46 +1,54 @@
 import torch
 import torch.nn as nn
-from attention import MultiHeadSelfAttention
-from mlp import FeedForward
+from .attention import MultiHeadSelfAttention
+from .mlp import FeedForward
 
 class TransformerBlock(nn.Module):
     def __init__(self, hidden_size, num_heads, ff_hidden_size, dropout_prob=0.1):
-        super().__init__(self)
+        """
+        Args:
+            hidden_size: Model dimension (D).
+            num_heads: Number of attention heads (H).
+            ff_hidden_size: Feed-forward hidden dimension (D_ff).
+            dropout_prob: Dropout probability.
+        """
+        super().__init__()
         self.hidden_size = hidden_size
 
-        self.ln1 = nn.LayerNorm(hidden_size)
-        self.ln2 = nn.LayerNorm(hidden_size)
+        # Pre-LN components
+        self.ln1 = nn.LayerNorm(hidden_size)  # LayerNorm before attention
+        self.ln2 = nn.LayerNorm(hidden_size)  # LayerNorm before MLP
 
-        #multi-head self attention
+        # Multi-head self-attention
         self.attention = MultiHeadSelfAttention(hidden_size, num_heads)
 
-        #Feed-forwaed block
-        self.mlp = FeedForward(hidden_size,ff_hidden_size)
+        # Feed-forward block
+        self.mlp = FeedForward(hidden_size, ff_hidden_size)
 
-        #Dropout
+        # Dropout for residual connections
+        self.dropout = nn.Dropout(dropout_prob)  # Add dropout layer
 
-    def forward(self, x, mask= None, cache=None):
-        #pre LN + attention
+    def forward(self, x, mask=None, cache=None):
+        """
+        Args:
+            x: Input tensor of shape [B, T, D].
+            mask: Optional causal mask of shape [B, 1, T, T].
+            cache: Optional dictionary for cached attention.
+        Returns:
+            Tensor of shape [B, T, D].
+        """
+        # Pre-LN + Attention
         residual = x
-        x= self.ln1(x)
-        x= self.attention(x, mask=mask, cache=cache)
-        x= self.dropout(x)#apply dropout after attention
-        x=x+residual#residual connection
+        x = self.ln1(x)  # Apply LayerNorm
+        x = self.attention(x, mask=mask, cache=cache)  # Self-attention
+        x = self.dropout(x)  # Apply dropout
+        x = x + residual  # Add residual connection
 
-        #pre LN + MLP
+        # Pre-LN + MLP
         residual = x
-        x= self.ln2(x)
-        x= self.mlp(x)
-        x= self.dropout(x)
-        x=x+residual
+        x = self.ln2(x)  # Apply LayerNorm
+        x = self.mlp(x)  # Feed-forward block
+        x = self.dropout(x)  # Apply dropout
+        x = x + residual  # Add residual connection
 
-        return 
-    
-    # Test the TransformerBlock
-B, T, D, H, D_ff = 8, 16, 64, 8, 256  # Batch size, sequence length, model dim, num heads, feed-forward dim
-x = torch.randn(B, T, D)
-mask = torch.tril(torch.ones(T, T)).unsqueeze(0).unsqueeze(1)  # Causal mask
-
-block = TransformerBlock(hidden_size=D, num_heads=H, ff_hidden_size=D_ff)
-output = block(x, mask=mask)
-print(output.shape)  # Should print: torch.Size([8, 16, 64]) 
+        return x

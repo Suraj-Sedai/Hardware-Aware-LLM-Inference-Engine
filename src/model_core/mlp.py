@@ -4,7 +4,7 @@ import torch.nn.functional as F
 
 class FeedForward(nn.Module):
     def __init__(self, hidden_size, ff_hidden_size, activation="gelu"):
-        super().__init__(self)
+        super().__init__()
         self.fc1 = nn.Linear(hidden_size, ff_hidden_size)
         self.fc2 = nn.Linear(ff_hidden_size, hidden_size)
 

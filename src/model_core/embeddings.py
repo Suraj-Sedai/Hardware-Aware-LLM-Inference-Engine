@@ -1,13 +1,13 @@
 import torch
 import torch.nn as nn
-from config import ModelConfig
+from .config import ModelConfig
 
 class TokenEmbedding(nn.Module):
     def __init__(self,config:ModelConfig) :
         super().__init__()
 
-        self.token_embedding = nn.Embedding(config.vocab_size, config.hidden_size)
-        self.position_embedding = nn.Embedding(config.max_position_embeddings, config.hidden_size)
+        self.token_embedding = nn.Embedding(config.vocab_size, config.d_model)
+        self.position_embedding = nn.Embedding(config.max_seq_len, config.d_model)
         self.dropout = nn.Dropout(config.dropout_prob)
 
     def forward(self, x, position_ids = None) :

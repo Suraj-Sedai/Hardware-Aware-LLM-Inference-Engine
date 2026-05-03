@@ -10,6 +10,7 @@ class ModelConfig:
     d_ff : int = 1024
     dropout :float = 0.0
     bias : bool = True
+    dropout_prob: float = 0.0
 
     def __post_init__(self):
         assert self.d_model %self.n_heads == 0

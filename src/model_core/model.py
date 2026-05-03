@@ -1,7 +1,7 @@
 import torch
 import torch.nn as nn
-from model_core.embeddings import TokenEmbedding
-from model_core.transformer_block import TransformerBlock
+from .embeddings import TokenEmbedding
+from .transformer_block import TransformerBlock
 
 class GPTModel(nn.Module):
     def __init__(self, config):
